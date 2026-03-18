@@ -1,0 +1,25 @@
+# Environments
+vision_env/
+venv/
+env/
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Logs & Data
+*.log
+chiku_log.txt
+chiku_memory.json
+
+# Personal Face Data (DO NOT UPLOAD BIOMETRICS)
+face_data/
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
+
+# Vosk models (too large for GitHub)
+vosk-model*/

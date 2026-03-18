@@ -1,0 +1,24 @@
+# CHIKU PRO - Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Core (Required) ─────────────────────────────────
+pyttsx3                  # Text-to-speech engine
+
+# ── Voice Input (Recommended) ───────────────────────
+SpeechRecognition        # Microphone voice recognition
+PyAudio                  # Audio input for SpeechRecognition
+
+# ── Vision (Optional) ───────────────────────────────
+opencv-python            # Camera and image processing
+mediapipe                # Face and hand detection AI
+
+# ── LLM Integration (Optional - pick one or more) ───
+openai                   # OpenAI GPT API
+requests                 # HTTP client (for Ollama/Gemini API)
+
+# ── System Tools (Optional) ─────────────────────────
+psutil                   # System info (CPU, RAM, battery)
+Pillow                   # Screenshots
+pyautogui                # Keyboard automation (type text)
+pycaw                    # Windows audio control (volume fallback)
+comtypes                 # Required by pycaw
