@@ -115,7 +115,7 @@ class ChikuTrayApp:
         command = listen()
 
         if not command:
-            speak("I didn't catch that.")
+            speak(" can you repeat what you said.")
             self.status = "idle"
             self._update_icon()
             return
