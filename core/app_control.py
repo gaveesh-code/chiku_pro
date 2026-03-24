@@ -59,6 +59,8 @@ KNOWN_APPS = {
     "files": "explorer",
     "settings": "ms-settings:",
     "control panel": "control",
+    "camera": "microsoft.windows.camera:",
+    "windows camera": "microsoft.windows.camera:",
 }
 
 # ─── Process names for killing apps ─────────────────────────────────────────

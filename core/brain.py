@@ -29,10 +29,10 @@ Available action types and their parameters:
    - Set system volume to a percentage
 
 5. {"type": "camera_on"}
-   - Start/enable the camera/vision system
+   - Start/enable/open the camera/vision system
 
 6. {"type": "camera_off"}
-   - Stop/disable the camera/vision system
+   - Stop/disable/close the camera/vision system
 
 7. {"type": "shell_command", "command": "<windows_command>"}
    - Execute a Windows shell command (cmd/powershell)
@@ -67,6 +67,15 @@ def _offline_parse(text):
     """Keyword-based parser when LLM is unavailable."""
     text = text.lower().strip()
     actions = []
+
+    # ── Camera ───────────────────────────────────────────────────────────
+    if any(kw in text for kw in ["camera on", "start camera", "enable camera", "vision on", "open camera"]):
+        actions.append({"type": "camera_on"})
+        return actions
+
+    if any(kw in text for kw in ["camera off", "stop camera", "disable camera", "vision off", "close camera"]):
+        actions.append({"type": "camera_off"})
+        return actions
 
     # ── App Opening ──────────────────────────────────────────────────────
     app_keywords = {
@@ -153,14 +162,6 @@ def _offline_parse(text):
         actions.append({"type": "volume", "level": int(vol_match2.group(1))})
         return actions
 
-    # ── Camera ───────────────────────────────────────────────────────────
-    if any(kw in text for kw in ["camera on", "start camera", "enable camera", "vision on"]):
-        actions.append({"type": "camera_on"})
-        return actions
-
-    if any(kw in text for kw in ["camera off", "stop camera", "disable camera", "vision off"]):
-        actions.append({"type": "camera_off"})
-        return actions
 
     # ── Screenshot ───────────────────────────────────────────────────────
     if "screenshot" in text or "screen shot" in text or "capture screen" in text:
@@ -192,6 +193,8 @@ def _offline_parse(text):
     return actions
 
 
+from core.database import db
+
 # ─── Main Parser ─────────────────────────────────────────────────────────────
 def parse_user_input(user_input):
     """
@@ -203,9 +206,30 @@ def parse_user_input(user_input):
 
     user_input = user_input.strip()
 
+    # Log user message to Supabase
+    db.add_chat_msg("user", user_input)
+
+    # Fetch context from Supabase
+    memories = db.get_memories()
+    chat_hist = db.get_chat_history(limit=5)
+    
+    context_block = ""
+    if memories or chat_hist:
+        context_block += "─── RETRIEVED CONTEXT ───\n"
+        if memories:
+            context_block += "Long-Term Memories about User:\n"
+            for m in memories:
+                context_block += f"- {m.get('category', '')}: {m.get('content', '')}\n"
+        if chat_hist:
+            context_block += "\nRecent Conversation History:\n"
+            for msg in chat_hist:
+                role = "User" if msg.get("role") == "user" else "CHIKU"
+                context_block += f"{role}: {msg.get('content', '')}\n"
+        context_block += "─────────────────────────\n\n"
+
     # Try LLM first
     try:
-        prompt = f"User command: {user_input}"
+        prompt = f"{context_block}User command: {user_input}"
         llm_response = get_llm_response(prompt, system_prompt=SYSTEM_PROMPT)
 
         if llm_response:
@@ -224,6 +248,10 @@ def parse_user_input(user_input):
                 # Validate each action has a 'type' key
                 valid = all(isinstance(a, dict) and "type" in a for a in actions)
                 if valid:
+                    # Log agent chat responses to Supabase
+                    for a in actions:
+                        if a.get("type") == "chat" and "message" in a:
+                            db.add_chat_msg("assistant", a["message"])
                     return actions
 
     except (json.JSONDecodeError, TypeError, ValueError) as e:
@@ -232,4 +260,8 @@ def parse_user_input(user_input):
         print(f"⚠️  LLM error: {e}")
 
     # Fallback to offline keyword parser
-    return _offline_parse(user_input)
+    actions = _offline_parse(user_input)
+    for a in actions:
+        if a.get("type") == "chat" and "message" in a:
+            db.add_chat_msg("assistant", a["message"])
+    return actions
