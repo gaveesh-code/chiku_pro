@@ -6,6 +6,7 @@ Converts natural language into structured action dicts.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from core.llm_router import get_llm_response
 
 
@@ -195,24 +196,47 @@ def _offline_parse(text):
 
 from core.database import db
 
+# ─── Parallel DB Context Fetcher ─────────────────────────────────────────────
+_db_executor = ThreadPoolExecutor(max_workers=2)
+
+
+def _fetch_context_parallel():
+    """Fetch memories and chat history in parallel."""
+    mem_future = _db_executor.submit(db.get_memories)
+    chat_future = _db_executor.submit(db.get_chat_history, 5)
+    return mem_future.result(timeout=5), chat_future.result(timeout=5)
+
+
 # ─── Main Parser ─────────────────────────────────────────────────────────────
 def parse_user_input(user_input):
     """
     Parse user's natural language input into a list of action dicts.
-    Uses LLM if available, falls back to keyword matching.
+    Fast path: try keyword parser first for known commands.
+    Slow path: use LLM only for ambiguous/chat inputs.
     """
     if not user_input or not user_input.strip():
         return []
 
     user_input = user_input.strip()
 
-    # Log user message to Supabase
-    db.add_chat_msg("user", user_input)
+    # Log user message to Supabase (fire-and-forget)
+    _db_executor.submit(db.add_chat_msg, "user", user_input)
 
-    # Fetch context from Supabase
-    memories = db.get_memories()
-    chat_hist = db.get_chat_history(limit=5)
-    
+    # ── FAST PATH: Try offline keyword parser first ──────────────────────
+    fast_actions = _offline_parse(user_input)
+    if fast_actions:
+        # If we got a concrete action (not just a generic chat fallback), use it
+        is_concrete = any(a.get("type") != "chat" for a in fast_actions)
+        if is_concrete:
+            return fast_actions
+
+    # ── SLOW PATH: Use LLM for ambiguous/chat inputs ────────────────────
+    # Fetch DB context in parallel
+    try:
+        memories, chat_hist = _fetch_context_parallel()
+    except Exception:
+        memories, chat_hist = [], []
+
     context_block = ""
     if memories or chat_hist:
         context_block += "─── RETRIEVED CONTEXT ───\n"
@@ -227,13 +251,11 @@ def parse_user_input(user_input):
                 context_block += f"{role}: {msg.get('content', '')}\n"
         context_block += "─────────────────────────\n\n"
 
-    # Try LLM first
     try:
         prompt = f"{context_block}User command: {user_input}"
         llm_response = get_llm_response(prompt, system_prompt=SYSTEM_PROMPT)
 
         if llm_response:
-            # Extract JSON from the response (handle markdown code blocks)
             json_str = llm_response.strip()
 
             # Remove markdown code fences if present
@@ -245,13 +267,11 @@ def parse_user_input(user_input):
             actions = json.loads(json_str)
 
             if isinstance(actions, list) and len(actions) > 0:
-                # Validate each action has a 'type' key
                 valid = all(isinstance(a, dict) and "type" in a for a in actions)
                 if valid:
-                    # Log agent chat responses to Supabase
                     for a in actions:
                         if a.get("type") == "chat" and "message" in a:
-                            db.add_chat_msg("assistant", a["message"])
+                            _db_executor.submit(db.add_chat_msg, "assistant", a["message"])
                     return actions
 
     except (json.JSONDecodeError, TypeError, ValueError) as e:
@@ -259,9 +279,9 @@ def parse_user_input(user_input):
     except Exception as e:
         print(f"⚠️  LLM error: {e}")
 
-    # Fallback to offline keyword parser
-    actions = _offline_parse(user_input)
+    # Final fallback to keyword parser result
+    actions = fast_actions if fast_actions else _offline_parse(user_input)
     for a in actions:
         if a.get("type") == "chat" and "message" in a:
-            db.add_chat_msg("assistant", a["message"])
+            _db_executor.submit(db.add_chat_msg, "assistant", a["message"])
     return actions

@@ -2,11 +2,13 @@
 CHIKU PRO - Executor Module
 Executes parsed action dicts by dispatching to the appropriate modules.
 Integrates risk analysis, logging, and voice feedback.
+Optimized: non-blocking execution via threading.
 """
 
 import subprocess
 import os
 import datetime
+import threading
 
 from core.app_control import open_app, close_app, open_url, search_web
 from core.volume_control import set_volume
@@ -14,6 +16,17 @@ from core.vision import vision
 from core.risk_analyzer import analyze_risk
 from core.logger import log_action
 from core.voice import speak
+
+
+def execute_action_async(action, callback=None):
+    """Execute an action in a background thread. Non-blocking."""
+    def _run():
+        result = execute_action(action)
+        if callback:
+            callback(result)
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
 
 
 def execute_action(action):

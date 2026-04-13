@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from core.executor import execute_action
+from core.executor import execute_action, execute_action_async
 from core.brain import parse_user_input
 from core.voice import listen, speak, speak_done
 from core.memory import memory
@@ -258,11 +258,12 @@ def main():
                 continue
 
             for action in actions:
-                result = execute_action(action)
-                memory.store_action(action)
+                def _on_done(result, act=action):
+                    if result:
+                        print(f"  → {result}")
+                    memory.store_action(act)
 
-                if result:
-                    print(f"  → {result}")
+                execute_action_async(action, callback=_on_done)
 
         except KeyboardInterrupt:
             print("\n\n⚡ Keyboard interrupt detected.")
